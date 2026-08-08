@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch } from '@/lib/api/client'
+import { getAccessToken } from '@/lib/auth/token'
 import { connectRealtime } from '@/lib/realtime/socket'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
@@ -31,7 +32,13 @@ export function SystemStatus() {
   }, [])
 
   useEffect(() => {
-    const socket = connectRealtime(DEMO_STACK_BOX_ID, {
+    const token = getAccessToken()
+    if (!token) {
+      setSocketStatus('disconnected')
+      return
+    }
+
+    const socket = connectRealtime(DEMO_STACK_BOX_ID, token, {
       onOpen: () => setSocketStatus('connected'),
       onClose: () => setSocketStatus('disconnected'),
       onError: () => setSocketStatus('disconnected'),

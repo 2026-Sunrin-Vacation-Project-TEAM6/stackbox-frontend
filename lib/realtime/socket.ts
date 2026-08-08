@@ -7,7 +7,6 @@ export type DocUpdateMessage = {
 
 export type PresenceMessage = {
   type: 'presence'
-  user_id: number
   cursor_x?: number | null
   cursor_y?: number | null
   selection?: unknown
@@ -23,8 +22,12 @@ export type RealtimeHandlers = {
   onMessage?: (message: ClientMessage) => void
 }
 
-export function connectRealtime(stackBoxId: number, handlers: RealtimeHandlers = {}): WebSocket {
-  const socket = new WebSocket(`${WORKER_URL}/ws/${stackBoxId}`)
+export function connectRealtime(
+  stackBoxId: number,
+  token: string,
+  handlers: RealtimeHandlers = {}
+): WebSocket {
+  const socket = new WebSocket(`${WORKER_URL}/ws/${stackBoxId}?token=${encodeURIComponent(token)}`)
 
   socket.onopen = () => handlers.onOpen?.()
   socket.onclose = (event) => handlers.onClose?.(event)
