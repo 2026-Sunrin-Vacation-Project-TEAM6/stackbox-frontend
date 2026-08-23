@@ -1,6 +1,4 @@
-<<<<<<< Updated upstream
-const API_BASE = process.env.NEXT_PUBLIC_API_URL!
-=======
+
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from '@/lib/auth/token'
 
 /**
@@ -11,7 +9,6 @@ import { clearTokens, getAccessToken, getRefreshToken, setTokens } from '@/lib/a
  * fails as an opaque 404 instead of naming the real problem.
  */
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
->>>>>>> Stashed changes
 
 /**
  * A non-2xx response, with the status kept intact.
@@ -38,16 +35,6 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError
 }
 
-<<<<<<< Updated upstream
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: auth ? 'include' : 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    ...rest,
-  })
-=======
 /** True when the failure means "this thing does not exist", not "this broke". */
 export function isNotFound(error: unknown): boolean {
   return isApiError(error) && error.status === 404
@@ -194,7 +181,6 @@ export async function apiRequest(path: string, options: ApiOptions = {}): Promis
       abandonSession()
     }
   }
->>>>>>> Stashed changes
 
   if (!response.ok) {
     throw new ApiError(response.status, extractDetail(response.status, await response.text()))
