@@ -20,6 +20,7 @@ import {
   type TLShapeId,
 } from 'tldraw'
 import 'tldraw/tldraw.css'
+import { useValue } from '@tldraw/state-react'
 import * as Y from 'yjs'
 
 import { apiFetch } from '@/lib/api/client'
@@ -71,10 +72,29 @@ class BlockShapeUtil extends BaseBoxShapeUtil<BlockShape> {
   }
 
   override component(shape: BlockShape) {
+    const editor = this.editor
+    /*
+     * Only claim pointer events while the select tool is active. Every other
+     * tool (arrow included) needs to hit-test and bind to this shape like any
+     * other — with `pointerEvents: 'all'` unconditional, this container ate
+     * every pointerdown over its bounds, so an arrow dragged to or from a
+     * block never reached tldraw at all and silently failed to bind. Select
+     * tool keeps the previous behavior unchanged (code editing, buttons,
+     * menus all still stop propagation so they don't also trigger a
+     * canvas-level drag-select).
+     */
+    const isSelectTool = useValue('isSelectTool', () => editor.getCurrentToolId() === 'select', [
+      editor,
+    ])
+
     return (
       <HTMLContainer
-        style={{ pointerEvents: 'all', width: shape.props.w, height: shape.props.h }}
-        onPointerDown={(event) => event.stopPropagation()}
+        style={{
+          pointerEvents: isSelectTool ? 'all' : 'none',
+          width: shape.props.w,
+          height: shape.props.h,
+        }}
+        onPointerDown={isSelectTool ? (event) => event.stopPropagation() : undefined}
       >
         <BlockShapeContent blockId={shape.props.blockId} />
       </HTMLContainer>
