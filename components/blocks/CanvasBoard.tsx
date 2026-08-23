@@ -15,10 +15,10 @@ import 'tldraw/tldraw.css'
 import * as Y from 'yjs'
 
 import { apiFetch } from '@/lib/api/client'
+import type { RunState } from '@/lib/api/code'
 import { getOrCreateBlockText } from '@/lib/realtime/ydoc'
-import { useExecutionStore } from '@/lib/execution/execution-context'
 
-import { BlockEditor, type Block } from './BlockEditor'
+import { BlockBody, blockLabel, type Block, type BlockActions } from './BlockEditor'
 
 declare module '@tldraw/tlschema' {
   interface TLGlobalShapePropsMap {
@@ -26,17 +26,24 @@ declare module '@tldraw/tlschema' {
   }
 }
 
-const DEFAULT_WIDTH = 320
-const DEFAULT_HEIGHT = 160
+/*
+ * Sized for the type that actually goes in them. At 320×160 a shape held about
+ * three lines of the 17px prose scale before scrolling, which turned every
+ * canvas block into a peephole; these are the smallest defaults at which a
+ * paragraph or a five-line function is readable without resizing first.
+ */
+const DEFAULT_WIDTH = 380
+const DEFAULT_HEIGHT = 220
 const GRID_COLUMNS = 3
-const GRID_GAP = 24
+const GRID_GAP = 32
 const PERSIST_DEBOUNCE_MS = 500
 
 type CanvasContextValue = {
   blocks: Block[]
   doc: Y.Doc
   docHydrated: boolean
-  onBlur: (blockId: number, content: string) => void
+  runs: Record<number, RunState>
+  actions: BlockActions
 }
 
 const CanvasContext = createContext<CanvasContextValue | null>(null)
@@ -58,7 +65,7 @@ class BlockShapeUtil extends BaseBoxShapeUtil<BlockShape> {
   override component(shape: BlockShape) {
     return (
       <HTMLContainer
-        style={{ pointerEvents: 'all', width: shape.props.w, height: shape.props.h, overflow: 'auto' }}
+        style={{ pointerEvents: 'all', width: shape.props.w, height: shape.props.h }}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <BlockShapeContent blockId={shape.props.blockId} />
@@ -73,25 +80,45 @@ class BlockShapeUtil extends BaseBoxShapeUtil<BlockShape> {
   }
 }
 
+/*
+ * A block on the Canvas. The same index it carries in the document is printed
+ * in the shape's header, so moving between Surfaces (§8) never costs you track
+ * of which block you are looking at.
+ */
 function BlockShapeContent({ blockId }: { blockId: number }) {
   const context = useContext(CanvasContext)
-  const { activeBlockId } = useExecutionStore()
   if (!context) return null
-  const { blocks, doc, docHydrated, onBlur } = context
+  const { blocks, doc, docHydrated, runs, actions } = context
 
-  const block = blocks.find((candidate) => candidate.id === blockId)
-  if (!block) return null
+  const index = blocks.findIndex((candidate) => candidate.id === blockId)
+  if (index === -1) return null
+  const block = blocks[index]
 
   const ytext = docHydrated ? getOrCreateBlockText(doc, block.id, block.content) : undefined
-  const isActive = activeBlockId === blockId
 
   return (
-    <div
-      className={`h-full w-full bg-white p-1 transition-all dark:bg-zinc-900 ${
-        isActive ? 'ring-2 ring-blue-500 shadow-lg' : ''
-      }`}
-    >
-      <BlockEditor block={block} ytext={ytext} onBlur={onBlur} />
+    /*
+     * A block on the canvas is the same material as a block in the document, so
+     * it carries the same 2px ink edge — a 1px hairline made every shape look
+     * like a tldraw default rather than a StackBox block. The header is a sunken
+     * strip for the same reason the code block's is: it names the thing without
+     * competing with it.
+     */
+    <div className="flex h-full w-full flex-col overflow-hidden border-2 border-text bg-paper">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b-2 border-text bg-sunken px-2.5">
+        <span className="sb-meta text-muted select-none">{blockLabel(index)}</span>
+      </div>
+
+      {/* framed={false}: this shape already draws the boundary. */}
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+        <BlockBody
+          block={block}
+          ytext={ytext}
+          run={runs[block.id]}
+          actions={actions}
+          framed={false}
+        />
+      </div>
     </div>
   )
 }
@@ -140,12 +167,14 @@ export function CanvasBoard({
   blocks,
   doc,
   docHydrated,
-  onBlur,
+  runs,
+  actions,
 }: {
   blocks: Block[]
   doc: Y.Doc
   docHydrated: boolean
-  onBlur: (blockId: number, content: string) => void
+  runs: Record<number, RunState>
+  actions: BlockActions
 }) {
   const editorRef = useRef<Editor | null>(null)
   const pendingPatches = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -212,8 +241,13 @@ export function CanvasBoard({
   }
 
   return (
-    <CanvasContext.Provider value={{ blocks, doc, docHydrated, onBlur }}>
-      <div className="h-[70vh] w-full overflow-hidden rounded border border-zinc-300 dark:border-zinc-700">
+    <CanvasContext.Provider value={{ blocks, doc, docHydrated, runs, actions }}>
+      {/*
+       * Full-bleed, no radius, no outer border — the Canvas *is* the Surface,
+       * not a widget sitting on a page (§4, §8). `sb-canvas` is the hook that
+       * retargets tldraw's --tl-* tokens onto the StackBox palette.
+       */}
+      <div className="sb-canvas relative min-h-0 flex-1">
         <Tldraw shapeUtils={[BlockShapeUtil]} onMount={handleMount} />
       </div>
     </CanvasContext.Provider>

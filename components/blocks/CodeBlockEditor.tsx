@@ -6,9 +6,13 @@ import { python } from '@codemirror/lang-python'
 import CodeMirror, { type Extension } from '@uiw/react-codemirror'
 import { useState } from 'react'
 
-import { apiFetch } from '@/lib/api/client'
-import { Button } from '@/components/ui/Button'
-import { useExecutionStore } from '@/lib/execution/execution-context'
+import { Menu, MenuItem, MenuSection, MenuSeparator } from '@/components/ui/Menu'
+import {
+  RUNNABLE_LANGUAGES,
+  isRunnable,
+  languageLabel,
+  type RunState,
+} from '@/lib/api/code'
 
 const LANGUAGE_EXTENSIONS: Record<string, Extension> = {
   python: python(),
@@ -17,139 +21,239 @@ const LANGUAGE_EXTENSIONS: Record<string, Extension> = {
   markdown: markdown(),
 }
 
-type CodeRunResult = {
-  id: number
-  stdout: string
-  stderr: string
-  exit_code: number
-  duration_ms: number
-}
-
+/*
+ * §17.3 / §3. The resting state is the language and the code — nothing else.
+ * Run and "⋮" arrive on hover or keyboard focus; stdin and output only exist
+ * once you have asked for them. Every item behind "⋮" maps to a real endpoint,
+ * so the menu is not a placeholder for future capability (§24).
+ *
+ * Code is the one block type that keeps a border and a paper background: §12
+ * requires it to be clearly separable from prose, and that distinction is
+ * information, not decoration. The frame is 2px ink for the same reason it is
+ * 2px everywhere else — a code block is a different material from the page it
+ * sits on, and a 22%-alpha hairline was not saying so.
+ */
 export function CodeBlockEditor({
   language,
   value,
+  run,
+  framed = true,
   onChange,
   onBlur,
-  blockId,
+  onRun,
+  onLanguageChange,
+  onClearOutput,
+  onTurnIntoText,
+  onDelete,
 }: {
   language: string | null
   value: string
+  run: RunState | undefined
+  /**
+   * False when a host already draws the boundary — the Canvas shape supplies its
+   * own border and paper, and nesting a second one says nothing extra (§13).
+   */
+  framed?: boolean
   onChange: (next: string) => void
   onBlur: () => void
-  blockId?: number
+  onRun: (stdin: string | null) => void
+  onLanguageChange: (language: string) => void
+  onClearOutput: () => void
+  onTurnIntoText: () => void
+  onDelete: () => void
 }) {
+  const [stdinOpen, setStdinOpen] = useState(false)
+  const [stdin, setStdin] = useState('')
+  const [outputOpen, setOutputOpen] = useState(true)
+
   const extension = LANGUAGE_EXTENSIONS[language ?? 'python'] ?? python()
-  const [executing, setExecuting] = useState(false)
-  const [result, setResult] = useState<CodeRunResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [highlightedLines, setHighlightedLines] = useState<Set<number>>(new Set())
+  const runnable = isRunnable(language)
+  const running = run?.status === 'running'
 
-  const { startExecution, completeExecution, setError: setStoreError, setActiveBlock } =
-    useExecutionStore()
-
-  async function handleRun() {
-    if (!blockId) return
-    setExecuting(true)
-    setError(null)
-    startExecution(blockId, language ?? 'python')
-
-    try {
-      const run = await apiFetch<CodeRunResult>(`/blocks/${blockId}/run`, {
-        method: 'POST',
-        body: JSON.stringify({ stdin: '' }),
-      })
-      setResult(run)
-
-      // Highlight all lines with code
-      const lines = value.split('\n')
-      const highlighted = new Set<number>()
-      lines.forEach((line, idx) => {
-        if (line.trim()) highlighted.add(idx + 1)
-      })
-      setHighlightedLines(highlighted)
-
-      completeExecution(blockId)
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to execute code'
-      setError(errorMsg)
-      setStoreError(blockId, errorMsg)
-    } finally {
-      setExecuting(false)
-    }
-  }
-
-  function handleStepClick(lineNum: number) {
-    setActiveBlock(blockId ?? null)
-  }
-
-  const lines = value.split('\n')
+  // Once there is state worth watching, stop hiding the controls that produced
+  // it — a disclosure that hides a running process is just a lost process.
+  const pinned = running || run !== undefined
 
   return (
-    <div className="w-full space-y-2">
-      <div className="flex items-center gap-2">
-        <div className="w-full space-y-1">
-          {/* Code editor with line tracking */}
-          <div className="overflow-hidden rounded border border-zinc-300 text-sm dark:border-zinc-700">
-            <CodeMirror
-              value={value}
-              onChange={onChange}
-              onBlur={onBlur}
-              extensions={[extension]}
-              basicSetup={{ lineNumbers: true, foldGutter: false }}
-            />
-          </div>
+    <div className={`group/code ${framed ? 'rounded-sb border-2 border-text bg-paper' : ''}`}>
+      <header className="flex items-center justify-between gap-3 border-b-2 border-text bg-sunken pr-2 pl-3.5">
+        <span className="sb-label py-3 text-muted">{languageLabel(language)}</span>
 
-          {/* Line execution indicator */}
-          {highlightedLines.size > 0 && (
-            <div className="flex flex-wrap gap-1 text-xs">
-              {lines.map((line, idx) => {
-                if (!line.trim()) return null
-                const lineNum = idx + 1
-                const isHighlighted = highlightedLines.has(lineNum)
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => handleStepClick(lineNum)}
-                    className={`rounded px-2 py-1 transition-colors ${
-                      isHighlighted
-                        ? 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                    }`}
-                  >
-                    L{lineNum}
-                  </button>
-                )
-              })}
-            </div>
+        <div
+          className={`flex items-center gap-2 transition-opacity duration-100 group-focus-within/code:visible group-focus-within/code:opacity-100 group-hover/code:visible group-hover/code:opacity-100 ${
+            pinned ? 'visible opacity-100' : 'invisible opacity-0'
+          }`}
+        >
+          {runnable && (
+            /*
+             * The one action a code block exists for, so it gets the solid
+             * primary fill (§10.3) rather than being a text link the same size as
+             * the language label beside it.
+             */
+            <button
+              type="button"
+              onClick={() => onRun(stdinOpen ? stdin : null)}
+              disabled={running}
+              className="flex items-center gap-2 rounded-sb bg-primary px-3 py-1.5 text-[14px] font-semibold text-background transition-colors duration-100 hover:bg-secondary disabled:opacity-50"
+            >
+              {running ? 'Running…' : 'Run'}
+              {!running && <span aria-hidden>▶</span>}
+            </button>
           )}
-        </div>
 
-        {blockId && (
-          <Button onClick={handleRun} disabled={executing} variant="secondary">
-            {executing ? 'Running…' : '▶ Run'}
-          </Button>
-        )}
+          <Menu label="Code block options">
+            {(close) => (
+              <>
+                <MenuSection>Language</MenuSection>
+                {RUNNABLE_LANGUAGES.map((entry) => (
+                  <MenuItem
+                    key={entry.id}
+                    checked={language === entry.id}
+                    onSelect={() => {
+                      onLanguageChange(entry.id)
+                      close()
+                    }}
+                  >
+                    {entry.label}
+                  </MenuItem>
+                ))}
+
+                <MenuSeparator />
+                <MenuItem
+                  onSelect={() => {
+                    setStdinOpen((current) => !current)
+                    close()
+                  }}
+                >
+                  {stdinOpen ? 'Hide input' : 'Add input'}
+                </MenuItem>
+                <MenuItem
+                  onSelect={() => {
+                    onClearOutput()
+                    close()
+                  }}
+                >
+                  Clear output
+                </MenuItem>
+
+                <MenuSeparator />
+                <MenuItem
+                  onSelect={() => {
+                    onTurnIntoText()
+                    close()
+                  }}
+                >
+                  Turn into text
+                </MenuItem>
+                <MenuItem
+                  danger
+                  onSelect={() => {
+                    onDelete()
+                    close()
+                  }}
+                >
+                  Delete block
+                </MenuItem>
+              </>
+            )}
+          </Menu>
+        </div>
+      </header>
+
+      <div className="sb-code">
+        <CodeMirror
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          extensions={[extension]}
+          basicSetup={{ lineNumbers: true, foldGutter: false, highlightActiveLine: false }}
+        />
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {stdinOpen && (
+        <div className="border-t-2 border-text px-3.5 py-3">
+          <label className="sb-label mb-2 block text-muted">Input</label>
+          <textarea
+            value={stdin}
+            onChange={(event) => setStdin(event.target.value)}
+            rows={2}
+            placeholder="Passed to the program as stdin"
+            className="w-full resize-y bg-transparent font-mono text-[15px] outline-none placeholder:text-faint"
+          />
+        </div>
+      )}
 
-      {result && (
-        <div className="rounded border border-zinc-300 bg-zinc-50 p-2 text-xs dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="font-semibold text-zinc-700 dark:text-zinc-300">
-            Output ({result.duration_ms}ms)
-          </div>
-          {result.stdout && (
-            <pre className="overflow-auto whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
-              {result.stdout}
-            </pre>
+      {run && (
+        <OutputPanel run={run} open={outputOpen} onToggle={() => setOutputOpen((v) => !v)} />
+      )}
+    </div>
+  )
+}
+
+function OutputPanel({
+  run,
+  open,
+  onToggle,
+}: {
+  run: RunState
+  open: boolean
+  onToggle: () => void
+}) {
+  const errored = run.status === 'failed' || (run.status === 'done' && run.exitCode !== 0)
+
+  return (
+    /*
+     * Output is the result of the code above it, so the seam between them is a
+     * real 2px edge — and when a run failed, that edge is the danger marker. The
+     * status is stated in words next to it; §14 rules out a spinner standing in
+     * for information we already have.
+     */
+    <div className={`border-t-2 ${errored ? 'border-danger' : 'border-text'}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors duration-100 hover:bg-sunken"
+      >
+        <span className={`sb-label ${errored ? 'text-danger' : 'text-muted'}`}>Output</span>
+
+        <span className="sb-meta flex items-center gap-3 text-faint">
+          {run.status === 'running' && 'running…'}
+          {run.status === 'failed' && <span className="text-danger">not run</span>}
+          {run.status === 'done' && (
+            <>
+              {run.exitCode !== 0 && <span className="text-danger">exit {run.exitCode}</span>}
+              <span>{run.durationMs}ms</span>
+            </>
           )}
-          {result.stderr && (
-            <pre className="overflow-auto whitespace-pre-wrap text-red-600 dark:text-red-400">
-              {result.stderr}
-            </pre>
+          <span className="text-[15px] leading-none" aria-hidden>
+            {open ? '−' : '+'}
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-rule px-3.5 py-3">
+          {run.status === 'running' && <p className="sb-meta text-muted">Waiting for the runner…</p>}
+
+          {run.status === 'failed' && (
+            <p className="font-mono text-[15px] whitespace-pre-wrap text-danger">{run.message}</p>
           )}
-          {result.exit_code !== 0 && (
-            <p className="text-red-600 dark:text-red-400">Exit code: {result.exit_code}</p>
+
+          {run.status === 'done' && (
+            <>
+              {run.stdout && (
+                <pre className="font-mono text-[15px] leading-relaxed whitespace-pre-wrap">
+                  {run.stdout}
+                </pre>
+              )}
+              {run.stderr && (
+                <pre className="font-mono text-[15px] leading-relaxed whitespace-pre-wrap text-danger">
+                  {run.stderr}
+                </pre>
+              )}
+              {!run.stdout && !run.stderr && <p className="sb-meta text-faint">No output.</p>}
+            </>
           )}
         </div>
       )}

@@ -1,26 +1,467 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * AGENTS.md §10 defines exactly one palette. There is no dark theme in the
+ * spec, so rebind Tailwind's `dark:` variant to an opt-in `.dark` class that we
+ * never set. Left at its default (prefers-color-scheme), every `dark:` class
+ * still sitting in files outside this redesign would fire on a dark-mode OS and
+ * paint zinc surfaces on top of the StackBox palette.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* §10 — the five base colors. Exact HEX, not approximations. */
+  --color-text: #050315;
+  --color-background: #eeeef2;
+  --color-primary: #004643;
+  --color-secondary: #375b5a;
+  --color-accent: #608584;
+
+  /*
+   * Derived surfaces. §10.2 forbids pure white as the *application* background;
+   * `paper` is reserved for panels that must read as inserted material — code
+   * blocks (§12 requires code to be clearly distinct from prose) and overlays.
+   */
+  --color-paper: #ffffff;
+  --color-sunken: #e4e4ec;
+
+  /*
+   * The inverted surface. §30 permits a rawer hierarchy, and this is the single
+   * decision that keeps StackBox off the hairline-minimal default that every
+   * other tool now ships: application chrome is a solid ink band, not a 1px
+   * line under a pale strip. `on-ink` is the background color used as text, so
+   * the inversion stays inside the §10 palette instead of introducing a sixth.
+   */
+  --color-ink: #050315;
+  --color-on-ink: #eeeef2;
+  --color-on-ink-muted: rgba(238, 238, 242, 0.6);
+  --color-on-ink-rule: rgba(238, 238, 242, 0.22);
+
+  /*
+   * §11 hierarchy: text de-emphasis is alpha off --color-text, never a new hue.
+   * Held at higher alpha than a typical muted scale — brutalism reads through
+   * contrast, and 32% grey on #EEEEF2 is the "quiet SaaS" tell (§22).
+   */
+  --color-muted: rgba(5, 3, 21, 0.68);
+  --color-faint: rgba(5, 3, 21, 0.46);
+
+  /*
+   * §13 — borders do the work of separating regions, so they are tokens.
+   * `rule` divides peers inside one region; `rule-strong` is full ink and marks
+   * a real boundary between regions. A boundary you have to look for is not
+   * doing its job.
+   */
+  --color-rule: rgba(5, 3, 21, 0.22);
+  --color-rule-strong: #050315;
+
+  /*
+   * Not one of the five. A failed code run has to be distinguishable from
+   * emphasis, and primary/accent both mean "this is important", not "this
+   * broke". Kept desaturated so it sits inside the palette's range.
+   */
+  --color-danger: #8c2f1f;
+
+  /*
+   * §13 — square. Not "small radius": an actual right angle. Every generic
+   * template lands on 6–8px, and 2px only reads as a blurred corner at these
+   * border weights.
+   */
+  --radius-sb: 0px;
+
+  /*
+   * §13 allows shadow where it carries layer hierarchy. A hard offset block is
+   * structure — it states "this sheet is above that one" with the same square
+   * vocabulary as the borders. A soft blur would be the decoration §22.1 rules
+   * out.
+   */
+  --shadow-hard: 5px 5px 0 0 var(--color-text);
+  --shadow-hard-sm: 3px 3px 0 0 var(--color-text);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  /*
+   * Tailwind v4 defaults `border` to currentColor, which would draw near-black
+   * rules. Default to the structural rule token instead so `border` is correct
+   * without restating the color at every call site.
+   */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-rule);
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  html {
+    height: 100%;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100%;
+    background-color: var(--color-background);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    /*
+     * The application's own baseline. 13px UI text was the reason nothing on
+     * screen could be read at a glance; 15px is the floor, and chrome that
+     * needs to be smaller than this has to say so explicitly.
+     */
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 34%, transparent);
+  }
+
+  /* §10.5 — accent carries focus. One focus treatment, applied globally. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+ * ── System type ─────────────────────────────────────────────────────────────
+ * §12 asks for a limited scale and a clear split between UI and document.
+ * The rule used throughout StackBox: mono/uppercase is *system* voice (labels,
+ * meta, state, chrome); sans is *content and action* voice. Keeping these two
+ * registers apart is what carries hierarchy, so we don't need many font sizes.
+ */
+@utility sb-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+/* The same voice, sized to sit on the ink band as a primary navigation label. */
+@utility sb-label-lg {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+@utility sb-meta {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Editorial display type, for the landing statement and empty-surface headings.
+ * §26 warns against typography that is large for its own sake, so this is
+ * reserved for the one line on a screen that states what the screen is.
+ */
+@utility sb-display {
+  font-size: clamp(2rem, 4.6vw, 3.25rem);
+  line-height: 1.04;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+}
+
+/*
+ * A keycap. Stated rather than hidden behind a search icon (§27), so it has to
+ * be legible — which the old 11px in a 1px box was not.
+ */
+@utility sb-key {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+  border: 1px solid currentColor;
+  padding: 3px 5px;
+}
+
+/*
+ * ── Document typography ─────────────────────────────────────────────────────
+ * §4/§12: inside a document, typography outranks UI. Prose sits directly on the
+ * app background with no card around it (§19 forbids wrapping everything in
+ * cards), so vertical rhythm and weight are the only structure here.
+ */
+@layer components {
+  .sb-prose {
+    /* Deliberately larger than the 15px UI baseline: the document has to win. */
+    font-size: 1.0625rem;
+    line-height: 1.7;
+    color: var(--color-text);
+  }
+
+  .sb-prose > * + * {
+    margin-top: 0.7em;
+  }
+
+  .sb-prose h1,
+  .sb-prose h2,
+  .sb-prose h3 {
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.018em;
+  }
+
+  /* Three levels only — §12 warns against a sprawling size scale. */
+  .sb-prose h1 {
+    font-size: 2rem;
+    margin-top: 1.5em;
+  }
+
+  .sb-prose h2 {
+    font-size: 1.5rem;
+    margin-top: 1.4em;
+  }
+
+  .sb-prose h3 {
+    font-size: 1.1875rem;
+    margin-top: 1.3em;
+  }
+
+  .sb-prose h1:first-child,
+  .sb-prose h2:first-child,
+  .sb-prose h3:first-child {
+    margin-top: 0;
+  }
+
+  .sb-prose strong {
+    font-weight: 700;
+  }
+
+  .sb-prose a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
+  /* Inline code: paper + rule, matching how code blocks read (§12). */
+  .sb-prose :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: var(--radius-sb);
+    padding: 0.08em 0.3em;
+  }
+
+  .sb-prose pre {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    background-color: var(--color-paper);
+    border: 2px solid var(--color-rule-strong);
+    border-radius: var(--radius-sb);
+    padding: 0.875rem 1rem;
+    overflow-x: auto;
+  }
+
+  .sb-prose pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  /* Square markers, not discs — §30 permits a rawer, more literal hierarchy. */
+  .sb-prose ul,
+  .sb-prose ol {
+    padding-left: 1.35rem;
+  }
+
+  .sb-prose ul {
+    list-style: square;
+  }
+
+  .sb-prose ol {
+    list-style: decimal;
+  }
+
+  .sb-prose li::marker {
+    color: var(--color-primary);
+  }
+
+  .sb-prose li + li {
+    margin-top: 0.25em;
+  }
+
+  /* A rule, not an italic pull-quote. Primary earns the emphasis here. */
+  .sb-prose blockquote {
+    border-left: 4px solid var(--color-primary);
+    padding-left: 1rem;
+    color: var(--color-muted);
+  }
+
+  .sb-prose hr {
+    border: 0;
+    border-top: 2px solid var(--color-rule-strong);
+    margin: 1.5em 0;
+  }
+
+  .sb-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+
+  .sb-prose th,
+  .sb-prose td {
+    border: 1px solid var(--color-rule-strong);
+    padding: 0.45rem 0.6rem;
+    text-align: left;
+  }
+
+  .sb-prose th {
+    background-color: var(--color-sunken);
+    font-weight: 700;
+  }
+
+  /* ── Tiptap host ───────────────────────────────────────────────────────── */
+  .sb-prose .tiptap {
+    outline: none;
+    min-height: 1.7em;
+  }
+
+  .sb-prose .tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: var(--color-faint);
+  }
+}
+
+/*
+ * ── CodeMirror ──────────────────────────────────────────────────────────────
+ * The editor is dropped into a code block that already owns its border and
+ * paper background, so strip CodeMirror's own chrome and let it inherit.
+ */
+@layer components {
+  .sb-code .cm-editor {
+    background-color: transparent;
+    font-family: var(--font-mono);
+    /* Matched to prose scale: code in a document is content, not chrome. */
+    font-size: 0.9375rem;
+  }
+
+  .sb-code .cm-editor.cm-focused {
+    outline: none;
+  }
+
+  .sb-code .cm-scroller {
+    font-family: var(--font-mono);
+    line-height: 1.65;
+  }
+
+  .sb-code .cm-content {
+    padding: 0.625rem 0;
+    caret-color: var(--color-primary);
+  }
+
+  .sb-code .cm-gutters {
+    background-color: transparent;
+    border-right: 1px solid var(--color-rule-strong);
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+
+  .sb-code .cm-lineNumbers .cm-gutterElement {
+    padding: 0 0.6rem 0 0.85rem;
+    min-width: 2.5rem;
+  }
+
+  /* No highlight band on the active line — decoration without information. */
+  .sb-code .cm-activeLine,
+  .sb-code .cm-activeLineGutter {
+    background-color: transparent;
+  }
+
+  .sb-code .cm-selectionBackground,
+  .sb-code .cm-editor.cm-focused .cm-selectionBackground,
+  .sb-code .cm-content ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 30%, transparent) !important;
+  }
+
+  .sb-code .cm-cursor,
+  .sb-code .cm-dropCursor {
+    border-left-color: var(--color-primary);
+    border-left-width: 2px;
+  }
+}
+
+/*
+ * ── tldraw ──────────────────────────────────────────────────────────────────
+ * §17.2: use tldraw's engine, but the Canvas reads in StackBox's visual
+ * language. tldraw namespaces its tokens under --tl-*, so retheming is a
+ * variable override rather than a fight with its stylesheet.
+ */
+@layer components {
+  .sb-canvas .tl-container,
+  .sb-canvas .tl-theme__light {
+    --tl-color-background: var(--color-background);
+    --tl-color-panel: var(--color-paper);
+    --tl-color-panel-contrast: var(--color-paper);
+    --tl-color-panel-overlay: color-mix(in srgb, var(--color-paper) 92%, transparent);
+    --tl-color-low: var(--color-sunken);
+    --tl-color-low-border: var(--color-rule);
+    --tl-color-divider: var(--color-rule);
+    --tl-color-grid: var(--color-faint);
+    --tl-color-hint: color-mix(in srgb, var(--color-accent) 22%, transparent);
+    --tl-color-overlay: color-mix(in srgb, var(--color-text) 18%, transparent);
+
+    --tl-color-text: var(--color-text);
+    --tl-color-text-0: var(--color-text);
+    --tl-color-text-1: var(--color-text);
+    --tl-color-text-3: var(--color-muted);
+    --tl-color-text-disabled: var(--color-faint);
+
+    --tl-color-primary: var(--color-primary);
+    --tl-color-selected: var(--color-primary);
+    --tl-color-selected-contrast: var(--color-paper);
+    --tl-color-focus: var(--color-accent);
+    --tl-color-selection-stroke: var(--color-primary);
+    --tl-color-selection-fill: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    --tl-color-tooltip: var(--color-text);
+    --tl-color-danger: var(--color-danger);
+    --tl-color-warning: var(--color-secondary);
+    --tl-color-info: var(--color-accent);
+    --tl-color-success: var(--color-primary);
+
+    /* §13 — square off tldraw's rounded panels. */
+    --tl-radius-1: 0px;
+    --tl-radius-2: 0px;
+    --tl-radius-3: 0px;
+    --tl-radius-4: 0px;
+
+    --tl-font-sans: var(--font-sans);
+    --tl-font-mono: var(--font-mono);
+  }
+
+  /*
+   * §13 — shadow only where it carries layer hierarchy. tldraw's soft drop
+   * shadows become the same hard ink border the rest of the app uses, so its
+   * panels read as StackBox sheets rather than as a second design system.
+   */
+  .sb-canvas .tlui-layout__top__left,
+  .sb-canvas .tlui-layout__top__right,
+  .sb-canvas .tlui-toolbar__tools,
+  .sb-canvas .tlui-style-panel {
+    box-shadow: none;
+    border: 2px solid var(--color-rule-strong);
+  }
 }

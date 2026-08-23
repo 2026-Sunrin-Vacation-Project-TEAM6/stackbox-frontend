@@ -14,7 +14,14 @@ declare module '@tiptap/core' {
   }
 }
 
-/** Rich-text markdown editor bound to a plain markdown string (from useYText). */
+/**
+ * Rich-text markdown editor bound to a plain markdown string (from useYText).
+ *
+ * §4/§19: no border, no card, no background of its own. Prose sits directly on
+ * the workspace background and the typography in `.sb-prose` is the only
+ * structure — wrapping every paragraph in a bordered box would make the
+ * document look like a form.
+ */
 export function MarkdownBlockEditor({
   value,
   onChange,
@@ -48,7 +55,7 @@ export function MarkdownBlockEditor({
   }, [editor, value])
 
   return (
-    <div className="w-full rounded border border-zinc-300 p-3 text-sm dark:border-zinc-700 [&_.tiptap]:min-h-24 [&_.tiptap]:outline-none [&_.tiptap_p.is-editor-empty:first-child::before]:pointer-events-none [&_.tiptap_p.is-editor-empty:first-child::before]:float-left [&_.tiptap_p.is-editor-empty:first-child::before]:h-0 [&_.tiptap_p.is-editor-empty:first-child::before]:text-zinc-400 [&_.tiptap_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]">
+    <div className="sb-prose">
       <EditorContent editor={editor} />
     </div>
   )

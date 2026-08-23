@@ -1,34 +1,49 @@
-import { useCallback, useEffect, useState } from 'react'
+'use client'
+
+import { useEffect, useState } from 'react'
+
 import * as Y from 'yjs'
 
-import { applyTextDelta } from '@/lib/realtime/ydoc'
+import { applyTextDelta } from './ydoc'
 
-/** Mirrors a Y.Text into React state and routes local edits back through it as diffs. */
+/**
+ * React hook that syncs a Y.Text instance with local state.
+ *
+ * Returns [value, onChange] where:
+ * - value: the current string content of the Y.Text
+ * - onChange: a handler that applies text edits as minimal deltas
+ *
+ * When ytext is undefined, falls back to the initialContent as a plain string.
+ */
 export function useYText(
   ytext: Y.Text | undefined,
-  initialValue = ''
+  initialContent: string
 ): [string, (next: string) => void] {
-  const [value, setValue] = useState(() => ytext?.toString() ?? initialValue)
+  const [value, setValue] = useState(initialContent)
 
   useEffect(() => {
-    if (!ytext) return
+    if (!ytext) {
+      setValue(initialContent)
+      return
+    }
+
+    // Initialize from Y.Text if available
     setValue(ytext.toString())
 
-    const onUpdate = () => setValue(ytext.toString())
-    ytext.observe(onUpdate)
-    return () => ytext.unobserve(onUpdate)
-  }, [ytext])
+    // Subscribe to Y.Text changes
+    const handler = () => setValue(ytext.toString())
+    ytext.observe(handler)
 
-  const onChange = useCallback(
-    (next: string) => {
-      if (!ytext) {
-        setValue(next)
-        return
-      }
-      applyTextDelta(ytext, ytext.toString(), next)
-    },
-    [ytext]
-  )
+    return () => ytext.unobserve(handler)
+  }, [ytext, initialContent])
+
+  const onChange = (next: string) => {
+    if (ytext) {
+      applyTextDelta(ytext, value, next)
+    } else {
+      setValue(next)
+    }
+  }
 
   return [value, onChange]
 }

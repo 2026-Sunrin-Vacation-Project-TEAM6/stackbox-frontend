@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 
-import { apiFetch } from '@/lib/api/client'
-import { sendDocUpdate } from '@/lib/realtime/socket'
+import { getSnapshot, listDocUpdates, putSnapshot } from '@/lib/api/stackBoxes'
+import { sendDocUpdate, type RealtimeConnection } from '@/lib/realtime/socket'
 
 // Origin markers let doc.on('update') tell apart local edits (broadcast + persist)
 // from updates that were merely applied while hydrating or relaying (must not re-broadcast).
@@ -10,16 +10,6 @@ const HYDRATE_ORIGIN = Symbol('stackbox-hydrate')
 const REMOTE_ORIGIN = Symbol('stackbox-remote')
 
 const UPDATES_PAGE_SIZE = 500
-
-type DocSnapshotRead = {
-  blob: string
-  version: number
-}
-
-type DocUpdateRead = {
-  blob: string
-  seq: number
-}
 
 function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64)
@@ -43,16 +33,14 @@ export async function hydrateDoc(doc: Y.Doc, stackBoxId: number): Promise<void> 
   let sinceSeq = 0
 
   try {
-    const snapshot = await apiFetch<DocSnapshotRead>(`/stack-boxes/${stackBoxId}/snapshot`)
+    const snapshot = await getSnapshot(stackBoxId)
     Y.applyUpdate(doc, base64ToBytes(snapshot.blob), HYDRATE_ORIGIN)
   } catch {
     // no snapshot yet — start from an empty doc
   }
 
   while (true) {
-    const updates = await apiFetch<DocUpdateRead[]>(
-      `/stack-boxes/${stackBoxId}/updates?since_seq=${sinceSeq}&limit=${UPDATES_PAGE_SIZE}`
-    )
+    const updates = await listDocUpdates(stackBoxId, { sinceSeq, limit: UPDATES_PAGE_SIZE })
     for (const update of updates) {
       Y.applyUpdate(doc, base64ToBytes(update.blob), HYDRATE_ORIGIN)
       sinceSeq = update.seq
@@ -62,15 +50,24 @@ export async function hydrateDoc(doc: Y.Doc, stackBoxId: number): Promise<void> 
 }
 
 /**
- * Wires local edits to the socket: any doc change made under LOCAL_ORIGIN is
+ * Wires local edits to the relay: any doc change made under LOCAL_ORIGIN is
  * encoded and sent as a doc_update frame. Updates applied via hydrateDoc or
  * applyRemoteUpdate are ignored so peers' own edits never get echoed back.
+ *
+ * Takes the connection rather than a socket so it survives a reconnect: the
+ * socket object is replaced on every retry, and a captured one would silently
+ * stop broadcasting while the doc kept accepting edits.
  */
-export function attachDocBroadcast(doc: Y.Doc, socket: WebSocket): () => void {
+export function attachDocBroadcast(doc: Y.Doc, connection: RealtimeConnection): () => void {
   const onUpdate = (update: Uint8Array, origin: unknown) => {
     if (origin !== LOCAL_ORIGIN) return
-    if (socket.readyState !== WebSocket.OPEN) return
-    sendDocUpdate(socket, bytesToBase64(update))
+    /*
+     * Best-effort by design. While the relay is down the edit still lands in the
+     * local doc, and `pushSnapshot` writes the full state on unmount — so peers
+     * pick it up from `hydrateDoc` rather than losing it. What is lost is only
+     * the liveness, which is what the connection indicator is for.
+     */
+    sendDocUpdate(connection, bytesToBase64(update))
   }
   doc.on('update', onUpdate)
   return () => doc.off('update', onUpdate)
@@ -88,10 +85,7 @@ export function applyRemoteUpdate(doc: Y.Doc, blob: string): void {
 export async function pushSnapshot(doc: Y.Doc, stackBoxId: number): Promise<void> {
   const blob = bytesToBase64(Y.encodeStateAsUpdate(doc))
   const state = bytesToBase64(Y.encodeStateVector(doc))
-  await apiFetch(`/stack-boxes/${stackBoxId}/snapshot`, {
-    method: 'PUT',
-    body: JSON.stringify({ blob, state }),
-  })
+  await putSnapshot(stackBoxId, { blob, state })
 }
 
 /** Gets or creates the shared Y.Text for a block, seeding it from `initialContent` if new. */
