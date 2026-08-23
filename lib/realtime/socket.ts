@@ -1,5 +1,13 @@
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL ?? 'ws://localhost:3000'
 
+function getWebSocketBaseUrl(rawUrl: string): string {
+  const normalized = rawUrl.trim().replace(/\/+$/, '')
+  if (normalized.startsWith('ws://') || normalized.startsWith('wss://')) return normalized
+  if (normalized.startsWith('http://')) return `ws://${normalized.slice('http://'.length)}`
+  if (normalized.startsWith('https://')) return `wss://${normalized.slice('https://'.length)}`
+  return 'ws://localhost:3000'
+}
+
 export type DocUpdateMessage = {
   type: 'doc_update'
   blob: string
@@ -108,9 +116,14 @@ export function connectRealtime(
 
     setStatus(attempt === 0 ? 'connecting' : 'reconnecting')
 
-    const next = new WebSocket(
-      `${WORKER_URL}/ws/${stackBoxId}?token=${encodeURIComponent(token)}`,
-    )
+    const wsBase = getWebSocketBaseUrl(WORKER_URL)
+    let next: WebSocket
+    try {
+      next = new WebSocket(`${wsBase}/ws/${stackBoxId}?token=${encodeURIComponent(token)}`)
+    } catch {
+      setStatus('offline', 'Realtime endpoint is misconfigured')
+      return
+    }
     socket = next
 
     next.onopen = () => {
