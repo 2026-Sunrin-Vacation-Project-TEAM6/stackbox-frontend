@@ -22,12 +22,19 @@ export type RealtimeHandlers = {
   onMessage?: (message: ClientMessage) => void
 }
 
+function getWebSocketUrl(): string {
+  const url = new URL(WORKER_URL, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
 export function connectRealtime(
   stackBoxId: number,
   token: string,
   handlers: RealtimeHandlers = {}
 ): WebSocket {
-  const socket = new WebSocket(`${WORKER_URL}/ws/${stackBoxId}?token=${encodeURIComponent(token)}`)
+  const wsUrl = getWebSocketUrl()
+  const socket = new WebSocket(`${wsUrl}ws/${stackBoxId}?token=${encodeURIComponent(token)}`)
 
   socket.onopen = () => handlers.onOpen?.()
   socket.onclose = (event) => handlers.onClose?.(event)
