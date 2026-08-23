@@ -157,11 +157,16 @@ export default function DocPage({ params }: PageProps<'/docs/[docId]'>) {
     }
   }
 
-  async function handleAddBlock() {
+  async function handleAddBlock(type: 'markdown' | 'code' = 'markdown', language?: string) {
     try {
       const block = await apiFetch<Block>(`/stack-boxes/${stackBoxId}/blocks`, {
         method: 'POST',
-        body: JSON.stringify({ type: 'markdown', content: '', sort_order: blocks.length }),
+        body: JSON.stringify({ 
+          type, 
+          language: type === 'code' ? language || 'javascript' : null,
+          content: '', 
+          sort_order: blocks.length 
+        }),
       })
       setBlocks((current) => [...current, block])
     } catch {
@@ -200,7 +205,17 @@ export default function DocPage({ params }: PageProps<'/docs/[docId]'>) {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {view === 'canvas' ? (
-        <CanvasBoard blocks={blocks} doc={doc} docHydrated={docHydrated} onBlur={handleBlockBlur} />
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <Button onClick={() => handleAddBlock('markdown')} variant="secondary">
+              Add Block
+            </Button>
+            <Button onClick={() => handleAddBlock('code', 'javascript')} variant="secondary">
+              Add Code Block
+            </Button>
+          </div>
+          <CanvasBoard blocks={blocks} doc={doc} docHydrated={docHydrated} onBlur={handleBlockBlur} />
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {blocks.map((block) => (
@@ -214,9 +229,11 @@ export default function DocPage({ params }: PageProps<'/docs/[docId]'>) {
         </div>
       )}
 
-      <Button variant="secondary" onClick={handleAddBlock} className="self-start">
-        Add block
-      </Button>
+      {view === 'list' && (
+        <Button variant="secondary" onClick={() => handleAddBlock()} className="self-start">
+          Add block
+        </Button>
+      )}
     </div>
   )
 }
