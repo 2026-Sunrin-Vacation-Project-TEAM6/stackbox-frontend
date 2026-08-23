@@ -8,7 +8,7 @@ import { clearTokens, getAccessToken, getRefreshToken, setTokens } from '@/lib/a
  * env var used to produce requests to the string "undefined/workspaces", which
  * fails as an opaque 404 instead of naming the real problem.
  */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost/api'
 
 /**
  * A non-2xx response, with the status kept intact.
