@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 /*
  * The "⋮" from AGENTS.md §3 — the shared mechanism for progressive disclosure.
@@ -25,16 +26,53 @@ export function Menu({
   trigger?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number; right: number } | null>(
+    null,
+  )
   const rootRef = useRef<HTMLSpanElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
   const close = () => setOpen(false)
+
+  /*
+   * Renders through a portal into <body>, positioned from the trigger's live
+   * screen coordinates rather than as a normal `position: absolute` child —
+   * a code block's output panel, a canvas shape's body, and the document's
+   * scroll container all clip overflow, and this panel is not "inside" any
+   * of them conceptually (§13: a menu is a sheet above the page, not
+   * content of the row it opened from). Recomputes on scroll/resize so it
+   * stays anchored to the trigger instead of visually detaching.
+   */
+  useLayoutEffect(() => {
+    if (!open) return
+
+    function updatePosition() {
+      const rect = triggerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+        right: window.innerWidth - rect.right,
+      })
+    }
+
+    updatePosition()
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
 
     function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as Node
+      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) return
+      setOpen(false)
     }
 
     function onKeyDown(event: KeyboardEvent) {
@@ -68,6 +106,7 @@ export function Menu({
   return (
     <span ref={rootRef} className="relative inline-flex">
       <button
+        ref={triggerRef}
         type="button"
         aria-label={label}
         aria-haspopup="menu"
@@ -92,17 +131,23 @@ export function Menu({
         {trigger ?? '⋮'}
       </button>
 
-      {open && (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute top-[calc(100%+4px)] z-30 min-w-52 border-2 border-text bg-paper shadow-hard-sm ${
-            align === 'right' ? 'right-0' : 'left-0'
-          }`}
-        >
-          {children(close)}
-        </div>
-      )}
+      {open &&
+        position &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: position.top,
+              ...(align === 'right' ? { right: position.right } : { left: position.left }),
+            }}
+            className="z-40 min-w-52 border-2 border-text bg-paper shadow-hard-sm"
+          >
+            {children(close)}
+          </div>,
+          document.body,
+        )}
     </span>
   )
 }
