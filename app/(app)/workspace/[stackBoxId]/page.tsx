@@ -4,7 +4,8 @@ import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 
 import { BlockEditor, type Block, type BlockActions } from '@/components/blocks/BlockEditor'
-import { CanvasBoard } from '@/components/blocks/CanvasBoard'
+import { CanvasBoard, type CanvasBoardHandle } from '@/components/blocks/CanvasBoard'
+import { Menu, MenuItem, MenuSection } from '@/components/ui/Menu'
 import { BlockInserter, type InsertSpec } from '@/components/workspace/BlockInserter'
 import { useRegisterCommands } from '@/components/workspace/CommandPalette'
 import { DocReactions } from '@/components/workspace/DocReactions'
@@ -57,6 +58,8 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
   const [peers, setPeers] = useState<PresencePeer[]>([])
   const [docHydrated, setDocHydrated] = useState(false)
   const [surface, setSurface] = useState<Surface>('document')
+  const canvasBoardRef = useRef<CanvasBoardHandle>(null)
+  const [flowRunning, setFlowRunning] = useState(false)
   const [runs, setRuns] = useState<Record<number, RunState>>({})
   const [inserting, setInserting] = useState(false)
   const [renameIntent, setRenameIntent] = useState(0)
@@ -409,6 +412,24 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
     }
   }, [doc, flushPending, handleInsert])
 
+  /**
+   * Runs every code block on the Canvas that's wired into an arrow diagram,
+   * in the order the arrows define — one block at a time, so the green
+   * "currently running" border (CanvasBoard.tsx) always names a single node.
+   */
+  const handleRunFlow = useCallback(async () => {
+    setError(null)
+    setFlowRunning(true)
+    try {
+      await flushPending()
+      await canvasBoardRef.current?.runFlow()
+    } catch (cause) {
+      setError(describe(cause, 'Flow run failed'))
+    } finally {
+      setFlowRunning(false)
+    }
+  }, [flushPending])
+
   /*
    * §6: the palette gets the commands *this* Surface can perform. Registering
    * them from here (rather than a global list) is what keeps it from offering
@@ -469,8 +490,16 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
           keywords: 'ai summary',
           run: handleSummarize,
         },
+        {
+          id: 'canvas.runFlow',
+          label: 'Run flow',
+          group: 'Canvas',
+          keywords: 'diagram arrow execute sequence',
+          disabled: surface !== 'canvas' || flowRunning,
+          run: handleRunFlow,
+        },
       ],
-      [surface, handleInsert, handleGeneratePresentation, handleSummarize],
+      [surface, flowRunning, handleInsert, handleGeneratePresentation, handleSummarize, handleRunFlow],
     ),
   )
 
@@ -499,9 +528,26 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
         onRename={handleRename}
         renameIntent={renameIntent}
       >
-        <span className="sb-meta text-faint">
-          {blocks.length} {blocks.length === 1 ? 'block' : 'blocks'}
-        </span>
+        {surface === 'canvas' ? (
+          /*
+           * Lives in the header, not overlaid on the canvas itself: tldraw's
+           * own chrome already occupies every corner (page menu, style panel,
+           * toolbar, zoom), so this is the one place a StackBox control can
+           * sit without competing with it.
+           */
+          <button
+            type="button"
+            onClick={handleRunFlow}
+            disabled={flowRunning}
+            className="sb-label border-2 border-text px-3 py-1.5 text-text transition-colors duration-100 hover:bg-sunken disabled:pointer-events-none disabled:opacity-50"
+          >
+            {flowRunning ? 'Running flow…' : 'Run flow'}
+          </button>
+        ) : (
+          <span className="sb-meta text-faint">
+            {blocks.length} {blocks.length === 1 ? 'block' : 'blocks'}
+          </span>
+        )}
       </WorkspaceBar>
 
       {/*
@@ -544,6 +590,7 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
 
       {surface === 'canvas' ? (
         <CanvasBoard
+          ref={canvasBoardRef}
           blocks={blocks}
           doc={doc}
           docHydrated={docHydrated}
@@ -558,6 +605,38 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
            * block can be worked on without sitting at the window edge.
            */}
           <div className="mx-auto w-full max-w-4xl px-8 pt-8 pb-40">
+            <div className="flex justify-end pb-4">
+              {/*
+               * §5 Contextual UI: this menu only does things the *document*
+               * can do (summarize itself, become a deck) — it stays out of
+               * the shared WorkspaceBar so it never appears on the Canvas
+               * surface, where neither action means anything.
+               */}
+              <Menu label="Document AI actions" align="right" trigger="AI">
+                {(close) => (
+                  <>
+                    <MenuSection>AI</MenuSection>
+                    <MenuItem
+                      onSelect={() => {
+                        void handleSummarize()
+                        close()
+                      }}
+                    >
+                      Generate summary
+                    </MenuItem>
+                    <MenuItem
+                      onSelect={() => {
+                        void handleGeneratePresentation()
+                        close()
+                      }}
+                    >
+                      Create presentation
+                    </MenuItem>
+                  </>
+                )}
+              </Menu>
+            </div>
+
             {blocks.length === 0 && (
               <p className="pb-2 text-[17px] text-muted">
                 This doc is empty. Press <kbd className="sb-key">/</kbd> below to insert a text or

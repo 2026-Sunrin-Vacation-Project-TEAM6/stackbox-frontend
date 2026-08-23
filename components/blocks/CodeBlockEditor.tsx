@@ -3,16 +3,22 @@
 import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
 import { python } from '@codemirror/lang-python'
+import type { EditorView, ViewUpdate } from '@codemirror/view'
 import CodeMirror, { type Extension } from '@uiw/react-codemirror'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
+import { AiEditPopover } from '@/components/ui/AiEditPopover'
 import { Menu, MenuItem, MenuSection, MenuSeparator } from '@/components/ui/Menu'
+import { fixCode } from '@/lib/api/ai'
 import {
   RUNNABLE_LANGUAGES,
   isRunnable,
   languageLabel,
   type RunState,
 } from '@/lib/api/code'
+
+/** Where the floating "AI" trigger sits, in coordinates relative to the editor wrapper. */
+type SelectionAnchor = { from: number; to: number; left: number; top: number }
 
 const LANGUAGE_EXTENSIONS: Record<string, Extension> = {
   python: python(),
@@ -65,10 +71,57 @@ export function CodeBlockEditor({
   const [stdinOpen, setStdinOpen] = useState(false)
   const [stdin, setStdin] = useState('')
   const [outputOpen, setOutputOpen] = useState(true)
+  const [selectionAnchor, setSelectionAnchor] = useState<SelectionAnchor | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const viewRef = useRef<EditorView | null>(null)
 
   const extension = LANGUAGE_EXTENSIONS[language ?? 'python'] ?? python()
   const runnable = isRunnable(language)
   const running = run?.status === 'running'
+
+  /*
+   * Tracks the live selection so the "AI" trigger can float next to it. Only
+   * recomputed on an actual selection change (`update.selectionSet`), not
+   * every keystroke — `docChanged` edits already move/collapse the selection
+   * on their own and would otherwise thrash the anchor position mid-type.
+   */
+  function handleUpdate(update: ViewUpdate) {
+    if (!update.selectionSet && !update.docChanged) return
+
+    const { from, to, empty } = update.state.selection.main
+    if (empty) {
+      setSelectionAnchor(null)
+      setAiOpen(false)
+      return
+    }
+
+    const wrapper = wrapperRef.current
+    const coords = update.view.coordsAtPos(to)
+    if (!wrapper || !coords) return
+
+    const wrapperRect = wrapper.getBoundingClientRect()
+    setSelectionAnchor({
+      from,
+      to,
+      left: coords.left - wrapperRect.left,
+      top: coords.bottom - wrapperRect.top,
+    })
+    setAiOpen(false)
+  }
+
+  async function handleAiEdit(instructions: string) {
+    const view = viewRef.current
+    if (!view || !selectionAnchor) return
+    const { from, to } = selectionAnchor
+    const code = view.state.sliceDoc(from, to)
+    if (!code.trim()) return
+
+    const { fixed_code } = await fixCode({ code, language, instructions })
+    view.dispatch({ changes: { from, to, insert: fixed_code } })
+    setAiOpen(false)
+    setSelectionAnchor(null)
+  }
 
   // Once there is state worth watching, stop hiding the controls that produced
   // it — a disclosure that hides a running process is just a lost process.
@@ -160,14 +213,38 @@ export function CodeBlockEditor({
         </div>
       </header>
 
-      <div className="sb-code">
+      <div ref={wrapperRef} className="sb-code relative">
         <CodeMirror
           value={value}
           onChange={onChange}
           onBlur={onBlur}
+          onUpdate={handleUpdate}
+          onCreateEditor={(view) => {
+            viewRef.current = view
+          }}
           extensions={[extension]}
           basicSetup={{ lineNumbers: true, foldGutter: false, highlightActiveLine: false }}
         />
+
+        {selectionAnchor && (
+          <div
+            className="absolute z-10"
+            style={{ left: selectionAnchor.left, top: selectionAnchor.top + 4 }}
+          >
+            {aiOpen ? (
+              <AiEditPopover onSubmit={handleAiEdit} onClose={() => setAiOpen(false)} />
+            ) : (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setAiOpen(true)}
+                className="sb-label border-2 border-text bg-paper px-3 py-2 text-text shadow-hard-sm transition-colors duration-100 hover:bg-sunken"
+              >
+                AI
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {stdinOpen && (

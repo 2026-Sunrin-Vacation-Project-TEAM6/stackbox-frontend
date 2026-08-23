@@ -199,7 +199,7 @@ export function WorkspaceSwitcher() {
                   onChange={(event) => setName(event.target.value)}
                   placeholder="Team name"
                   disabled={busy}
-                  className="w-full border-2 border-text bg-background px-2.5 py-2 text-[15px] outline-none placeholder:text-faint disabled:opacity-50"
+                  className="w-full border-2 border-text bg-background px-2.5 py-2 text-[15px] text-text outline-none placeholder:text-faint disabled:opacity-50"
                 />
 
                 {error && <p className="text-[14px] text-danger">{error}</p>}

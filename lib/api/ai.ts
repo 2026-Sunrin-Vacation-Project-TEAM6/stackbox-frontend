@@ -24,6 +24,18 @@ export function fixCode(input: {
   })
 }
 
+/**
+ * `POST /ai/edit-text` — revises an arbitrary text selection per free-form
+ * instructions. Distinct from `fixCode`: that endpoint casts the model as a
+ * software engineer and always fences its reply as code, which is the wrong
+ * shape for editing prose selected in the document.
+ */
+export function editText(input: { text: string; instructions: string }): Promise<{
+  edited_text: string
+}> {
+  return apiFetch<{ edited_text: string }>('/ai/edit-text', { method: 'POST', body: input })
+}
+
 /** `POST /ai/draft` — prompt is capped at 4 000 characters. */
 export function draft(prompt: string): Promise<{ draft: string }> {
   return apiFetch<{ draft: string }>('/ai/draft', { method: 'POST', body: { prompt } })

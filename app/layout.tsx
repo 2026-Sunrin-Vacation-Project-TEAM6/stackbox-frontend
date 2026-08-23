@@ -29,7 +29,19 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      {/*
+       * `h-full`, not `min-h-full`: the Canvas surface (tldraw) sizes itself
+       * with `height: 100%` down a chain of `flex-1` ancestors, and a
+       * percentage height only resolves against a *definite* containing-block
+       * height. `min-height` sets a floor but leaves the specified height
+       * `auto`, which the flexbox spec treats as indefinite for every
+       * `flex-1` descendant's height — even though each one still renders at
+       * the correct pixel size via flex-grow. `height: 100%` here (anchored
+       * to `html`'s `h-full`, which is genuinely definite against the
+       * viewport) is what makes the whole chain definite so tldraw's
+       * percentage sizing actually resolves instead of collapsing to 0.
+       */}
+      <body className="h-full flex flex-col">{children}</body>
     </html>
   );
 }

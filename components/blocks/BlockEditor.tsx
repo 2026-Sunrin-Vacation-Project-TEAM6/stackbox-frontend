@@ -17,7 +17,8 @@ export type { Block }
 /** Everything a block can do, all of it backed by an existing endpoint. */
 export type BlockActions = {
   onSave: (blockId: number, content: string) => void
-  onRun: (blockId: number, stdin: string | null) => void
+  /** Resolves once the run has finished (succeeded or failed) — Canvas flow execution awaits this to run connected blocks in order. */
+  onRun: (blockId: number, stdin: string | null) => Promise<void>
   onLanguageChange: (blockId: number, language: string) => void
   onTypeChange: (blockId: number, type: BlockType, language: string | null) => void
   onClearOutput: (blockId: number) => void

@@ -1,6 +1,13 @@
 'use client'
 
-import { createContext, useContext, useEffect, useRef } from 'react'
+import {
+  createContext,
+  forwardRef,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from 'react'
 import {
   BaseBoxShapeUtil,
   Editor,
@@ -10,6 +17,7 @@ import {
   createShapeId,
   type RecordProps,
   type TLBaseShape,
+  type TLShapeId,
 } from 'tldraw'
 import 'tldraw/tldraw.css'
 import * as Y from 'yjs'
@@ -95,6 +103,7 @@ function BlockShapeContent({ blockId }: { blockId: number }) {
   const block = blocks[index]
 
   const ytext = docHydrated ? getOrCreateBlockText(doc, block.id, block.content) : undefined
+  const isRunning = runs[block.id]?.status === 'running'
 
   return (
     /*
@@ -103,8 +112,14 @@ function BlockShapeContent({ blockId }: { blockId: number }) {
      * like a tldraw default rather than a StackBox block. The header is a sunken
      * strip for the same reason the code block's is: it names the thing without
      * competing with it.
+     *
+     * `border-primary` while running is the one exception: a flow run has to
+     * show which node it is currently on, and primary is the palette's only
+     * color that reads as "active" rather than "danger" or "decoration" (§10.3).
      */
-    <div className="flex h-full w-full flex-col overflow-hidden border-2 border-text bg-paper">
+    <div
+      className={`flex h-full w-full flex-col overflow-hidden border-2 bg-paper ${isRunning ? 'border-primary' : 'border-text'}`}
+    >
       <div className="flex h-8 shrink-0 items-center gap-2 border-b-2 border-text bg-sunken px-2.5">
         <span className="sb-meta text-muted select-none">{blockLabel(index)}</span>
       </div>
@@ -163,21 +178,110 @@ function syncShapesFromBlocks(editor: Editor, blocks: Block[]) {
   }
 }
 
-export function CanvasBoard({
-  blocks,
-  doc,
-  docHydrated,
-  runs,
-  actions,
-}: {
-  blocks: Block[]
-  doc: Y.Doc
-  docHydrated: boolean
-  runs: Record<number, RunState>
-  actions: BlockActions
-}) {
+/** Exposed to the page header so its "Run flow" control lives outside the canvas's own chrome (§5, §13 — no free corner to overlay it in without colliding with tldraw's own panels). */
+export type CanvasBoardHandle = {
+  runFlow: () => Promise<void>
+}
+
+/**
+ * Reads the arrows on the current page connecting `block` shapes and returns
+ * the block ids in execution order (arrow direction = dependency order: A→B
+ * means A runs before B).
+ *
+ * Blocks with no arrows are excluded — a "run flow" applies to the diagram
+ * the user drew, not to every block on the surface. A cycle would otherwise
+ * strand its members at a permanent nonzero in-degree, so any left over
+ * after the topological pass are appended in id order rather than dropped.
+ */
+function computeFlowOrder(editor: Editor): number[] {
+  const shapes = editor.getCurrentPageShapes()
+  const blockIdByShapeId = new Map(
+    shapes
+      .filter((shape) => shape.type === 'block')
+      .map((shape) => [shape.id, (shape as BlockShape).props.blockId]),
+  )
+
+  const edges: Array<[number, number]> = []
+  for (const shape of shapes) {
+    if (shape.type !== 'arrow') continue
+
+    let fromShapeId: TLShapeId | undefined
+    let toShapeId: TLShapeId | undefined
+    for (const binding of editor.getBindingsFromShape(shape.id, 'arrow')) {
+      if (binding.props.terminal === 'start') fromShapeId = binding.toId
+      if (binding.props.terminal === 'end') toShapeId = binding.toId
+    }
+    if (!fromShapeId || !toShapeId) continue
+
+    const fromBlockId = blockIdByShapeId.get(fromShapeId)
+    const toBlockId = blockIdByShapeId.get(toShapeId)
+    if (fromBlockId != null && toBlockId != null && fromBlockId !== toBlockId) {
+      edges.push([fromBlockId, toBlockId])
+    }
+  }
+
+  const nodes = new Set<number>()
+  edges.forEach(([from, to]) => {
+    nodes.add(from)
+    nodes.add(to)
+  })
+
+  const adjacency = new Map<number, number[]>()
+  const inDegree = new Map<number, number>()
+  nodes.forEach((id) => {
+    adjacency.set(id, [])
+    inDegree.set(id, 0)
+  })
+  edges.forEach(([from, to]) => {
+    adjacency.get(from)!.push(to)
+    inDegree.set(to, (inDegree.get(to) ?? 0) + 1)
+  })
+
+  const queue = [...nodes].filter((id) => inDegree.get(id) === 0).sort((a, b) => a - b)
+  const order: number[] = []
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    order.push(id)
+    for (const next of adjacency.get(id) ?? []) {
+      const remaining = (inDegree.get(next) ?? 0) - 1
+      inDegree.set(next, remaining)
+      if (remaining === 0) queue.push(next)
+    }
+  }
+
+  for (const id of nodes) {
+    if (!order.includes(id)) order.push(id)
+  }
+
+  return order
+}
+
+export const CanvasBoard = forwardRef<
+  CanvasBoardHandle,
+  {
+    blocks: Block[]
+    doc: Y.Doc
+    docHydrated: boolean
+    runs: Record<number, RunState>
+    actions: BlockActions
+  }
+>(function CanvasBoard({ blocks, doc, docHydrated, runs, actions }, ref) {
   const editorRef = useRef<Editor | null>(null)
   const pendingPatches = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      runFlow: async () => {
+        const editor = editorRef.current
+        if (!editor) return
+        for (const blockId of computeFlowOrder(editor)) {
+          await actions.onRun(blockId, null)
+        }
+      },
+    }),
+    [actions],
+  )
 
   useEffect(() => {
     const editor = editorRef.current
@@ -252,4 +356,4 @@ export function CanvasBoard({
       </div>
     </CanvasContext.Provider>
   )
-}
+})

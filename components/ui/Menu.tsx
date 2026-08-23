@@ -16,10 +16,13 @@ export function Menu({
   children,
   label = 'More',
   align = 'right',
+  trigger,
 }: {
   children: (close: () => void) => ReactNode
   label?: string
   align?: 'left' | 'right'
+  /** Overrides the default "⋮" glyph — for menus that need a named, discoverable trigger rather than a parked overflow icon (e.g. "AI"). */
+  trigger?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement>(null)
@@ -76,11 +79,17 @@ export function Menu({
          * capability the hardest thing on screen to hit. Open state inverts to
          * ink so the trigger reads as part of the panel it opened.
          */
-        className={`inline-flex h-7 w-7 items-center justify-center rounded-sb text-[17px] leading-none transition-colors duration-100 ${
-          open ? 'bg-text text-background' : 'text-muted hover:bg-sunken hover:text-text'
-        }`}
+        className={
+          trigger
+            ? `sb-label border-2 border-text px-3 py-1.5 transition-colors duration-100 ${
+                open ? 'bg-text text-background' : 'text-text hover:bg-sunken'
+              }`
+            : `inline-flex h-7 w-7 items-center justify-center rounded-sb text-[17px] leading-none transition-colors duration-100 ${
+                open ? 'bg-text text-background' : 'text-muted hover:bg-sunken hover:text-text'
+              }`
+        }
       >
-        ⋮
+        {trigger ?? '⋮'}
       </button>
 
       {open && (
