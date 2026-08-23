@@ -16,6 +16,7 @@ import * as Y from 'yjs'
 
 import { apiFetch } from '@/lib/api/client'
 import { getOrCreateBlockText } from '@/lib/realtime/ydoc'
+import { useExecutionStore } from '@/lib/execution/execution-context'
 
 import { BlockEditor, type Block } from './BlockEditor'
 
@@ -74,6 +75,7 @@ class BlockShapeUtil extends BaseBoxShapeUtil<BlockShape> {
 
 function BlockShapeContent({ blockId }: { blockId: number }) {
   const context = useContext(CanvasContext)
+  const { activeBlockId } = useExecutionStore()
   if (!context) return null
   const { blocks, doc, docHydrated, onBlur } = context
 
@@ -81,9 +83,14 @@ function BlockShapeContent({ blockId }: { blockId: number }) {
   if (!block) return null
 
   const ytext = docHydrated ? getOrCreateBlockText(doc, block.id, block.content) : undefined
+  const isActive = activeBlockId === blockId
 
   return (
-    <div className="h-full w-full bg-white p-1 dark:bg-zinc-900">
+    <div
+      className={`h-full w-full bg-white p-1 transition-all dark:bg-zinc-900 ${
+        isActive ? 'ring-2 ring-blue-500 shadow-lg' : ''
+      }`}
+    >
       <BlockEditor block={block} ytext={ytext} onBlur={onBlur} />
     </div>
   )

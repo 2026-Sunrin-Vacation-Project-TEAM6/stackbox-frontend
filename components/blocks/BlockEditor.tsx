@@ -34,6 +34,7 @@ export function BlockEditor({
   if (block.type === 'code') {
     return (
       <CodeBlockEditor
+        blockId={block.id}
         language={block.language}
         value={value}
         onChange={onChange}
