@@ -174,8 +174,14 @@ export function CodeBlockEditor({
                       onLanguageChange(entry.id)
                       // Give an empty block real boilerplate instead of a
                       // blank editor the user has to look up `main()` for.
+                      // Also overwrite if the block still holds an untouched
+                      // starter from a previous language pick, so switching
+                      // C -> Rust doesn't leave Rust labeled/highlighted over
+                      // leftover C boilerplate.
                       const starter = STARTER_SNIPPETS[entry.id]
-                      if (starter && !value.trim()) onChange(starter)
+                      const isUntouched =
+                        !value.trim() || Object.values(STARTER_SNIPPETS).includes(value)
+                      if (starter && isUntouched) onChange(starter)
                       close()
                     }}
                   >
