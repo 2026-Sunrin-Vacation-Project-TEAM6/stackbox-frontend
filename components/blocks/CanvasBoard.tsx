@@ -24,7 +24,7 @@ import { useValue } from '@tldraw/state-react'
 import * as Y from 'yjs'
 
 import { apiFetch } from '@/lib/api/client'
-import type { RunState } from '@/lib/api/code'
+import { isRunnable, type RunState } from '@/lib/api/code'
 import { getOrCreateBlockText } from '@/lib/realtime/ydoc'
 
 import { BlockBody, blockLabel, type Block, type BlockActions } from './BlockEditor'
@@ -123,7 +123,12 @@ function BlockShapeContent({ blockId }: { blockId: number }) {
   const block = blocks[index]
 
   const ytext = docHydrated ? getOrCreateBlockText(doc, block.id, block.content) : undefined
-  const isRunning = runs[block.id]?.status === 'running'
+  const run = runs[block.id]
+  const isRunning = run?.status === 'running'
+  // Same "errored" test CodeBlockEditor's OutputPanel uses for its border
+  // (failed to reach the runner, or ran and exited non-zero) — the node
+  // border and that panel's border are reporting the same fact.
+  const isErrored = run?.status === 'failed' || (run?.status === 'done' && run.exitCode !== 0)
 
   return (
     /*
@@ -133,12 +138,18 @@ function BlockShapeContent({ blockId }: { blockId: number }) {
      * strip for the same reason the code block's is: it names the thing without
      * competing with it.
      *
-     * `border-primary` while running is the one exception: a flow run has to
-     * show which node it is currently on, and primary is the palette's only
-     * color that reads as "active" rather than "danger" or "decoration" (§10.3).
+     * Running/errored borders reuse the app's two other "state" colors rather
+     * than inventing a third: `border-primary` is the palette's only "active"
+     * color (§10.3, also used while a flow run is on this node), and
+     * `border-danger` is the same color CodeBlockEditor's own output panel
+     * turns on a failed or non-zero-exit run. A finished, successful run has
+     * no dedicated color anywhere else in the app either — it just goes back
+     * to the resting `border-text` — so idle and success share that border.
      */
     <div
-      className={`flex h-full w-full flex-col overflow-hidden border-2 bg-paper ${isRunning ? 'border-primary' : 'border-text'}`}
+      className={`flex h-full w-full flex-col overflow-hidden border-2 bg-paper ${
+        isRunning ? 'border-primary' : isErrored ? 'border-danger' : 'border-text'
+      }`}
     >
       <div className="flex h-8 shrink-0 items-center gap-2 border-b-2 border-text bg-sunken px-2.5">
         <span className="sb-meta text-muted select-none">{blockLabel(index)}</span>
@@ -295,12 +306,21 @@ export const CanvasBoard = forwardRef<
       runFlow: async () => {
         const editor = editorRef.current
         if (!editor) return
+        const blockById = new Map(blocks.map((block) => [block.id, block]))
         for (const blockId of computeFlowOrder(editor)) {
+          const block = blockById.get(blockId)
+          // The topological order runs over every block the diagram connects,
+          // markdown included, so a code block downstream of a markdown node
+          // still waits its turn — but only code blocks have a "run" action,
+          // so anything else is skipped rather than sent to onRun (which would
+          // hit the backend and surface as a false "failed" run on a node that
+          // was never runnable to begin with).
+          if (!block || block.type !== 'code' || !isRunnable(block.language)) continue
           await actions.onRun(blockId, null)
         }
       },
     }),
-    [actions],
+    [actions, blocks],
   )
 
   useEffect(() => {
