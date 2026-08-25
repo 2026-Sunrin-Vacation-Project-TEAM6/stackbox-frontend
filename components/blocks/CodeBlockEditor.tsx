@@ -1,8 +1,10 @@
 'use client'
 
+import { cpp } from '@codemirror/lang-cpp'
 import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
 import { python } from '@codemirror/lang-python'
+import { rust } from '@codemirror/lang-rust'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
 import CodeMirror, { type Extension } from '@uiw/react-codemirror'
 import { useRef, useState } from 'react'
@@ -12,6 +14,7 @@ import { Menu, MenuItem, MenuSection, MenuSeparator } from '@/components/ui/Menu
 import { fixCode } from '@/lib/api/ai'
 import {
   RUNNABLE_LANGUAGES,
+  STARTER_SNIPPETS,
   isRunnable,
   languageLabel,
   type RunState,
@@ -25,6 +28,11 @@ const LANGUAGE_EXTENSIONS: Record<string, Extension> = {
   javascript: javascript(),
   typescript: javascript({ typescript: true }),
   markdown: markdown(),
+  // `cpp()` covers both dialects — C is not a distinct Lezer grammar upstream,
+  // and the two are close enough that shared highlighting is correct either way.
+  c: cpp(),
+  cpp: cpp(),
+  rust: rust(),
 }
 
 /*
@@ -164,6 +172,10 @@ export function CodeBlockEditor({
                     checked={language === entry.id}
                     onSelect={() => {
                       onLanguageChange(entry.id)
+                      // Give an empty block real boilerplate instead of a
+                      // blank editor the user has to look up `main()` for.
+                      const starter = STARTER_SNIPPETS[entry.id]
+                      if (starter && !value.trim()) onChange(starter)
                       close()
                     }}
                   >
@@ -319,6 +331,23 @@ function OutputPanel({
 
           {run.status === 'done' && (
             <>
+              {/*
+               * Compiled languages (C/C++/Rust) can fail before the program
+               * ever runs — that's a different failure than the program
+               * printing to stderr, so it gets its own labeled, secondary-toned
+               * block instead of blending into the danger-red stderr below.
+               * `compileError` may simply be absent (older/uncompiled runs),
+               * in which case this renders nothing and stderr carries the error
+               * as it always has.
+               */}
+              {run.compileError && (
+                <div className="mb-3 border-l-4 border-secondary bg-sunken px-3 py-2">
+                  <p className="sb-label mb-1 text-secondary">Compile error</p>
+                  <pre className="font-mono text-[15px] leading-relaxed whitespace-pre-wrap">
+                    {run.compileError}
+                  </pre>
+                </div>
+              )}
               {run.stdout && (
                 <pre className="font-mono text-[15px] leading-relaxed whitespace-pre-wrap">
                   {run.stdout}
@@ -329,7 +358,9 @@ function OutputPanel({
                   {run.stderr}
                 </pre>
               )}
-              {!run.stdout && !run.stderr && <p className="sb-meta text-faint">No output.</p>}
+              {!run.stdout && !run.stderr && !run.compileError && (
+                <p className="sb-meta text-faint">No output.</p>
+              )}
             </>
           )}
         </div>

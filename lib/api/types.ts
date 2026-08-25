@@ -102,7 +102,13 @@ export type Block = {
 
 /* ── code execution ───────────────────────────────────────────────────────── */
 
-/** `schemas/code_run.py: CodeRunRead` */
+/**
+ * `schemas/code_run.py: CodeRunRead`
+ *
+ * `compile_error` backs compiled-language support (C/C++/Rust) in the
+ * code_runner service and is optional here because that backend work may not
+ * be deployed yet — older responses simply omit the key.
+ */
 export type CodeRun = {
   id: number
   block_id: number
@@ -113,6 +119,7 @@ export type CodeRun = {
   duration_ms: number
   executed_by: number | null
   created_at: string
+  compile_error?: string | null
 }
 
 /* ── collaborative documents ──────────────────────────────────────────────── */
