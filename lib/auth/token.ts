@@ -34,7 +34,12 @@ export function getUserIdFromToken(): number | null {
 
     // Decode the payload (second part)
     const payload = parts[1]
-    const decoded = atob(payload)
+    // JWT uses base64url, not base64: `_` and `-` are valid here, and padding
+    // is omitted. `atob` rejects those characters, so translate them to their
+    // base64 equivalents and restore padding before decoding.
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+    const decoded = atob(padded)
     const claims = JSON.parse(decoded) as { sub?: string | number; user_id?: string | number }
 
     // Try to extract user ID from common claim names
