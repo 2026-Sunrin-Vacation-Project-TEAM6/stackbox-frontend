@@ -35,6 +35,7 @@ export type CodeResultMessage = {
   block_id: number
   stdout: string
   stderr: string
+  compile_error?: string | null
   exit_code: number
   duration_ms: number
 }

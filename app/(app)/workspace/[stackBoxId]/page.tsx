@@ -205,6 +205,7 @@ export default function WorkspacePage({ params }: PageProps<'/workspace/[stackBo
               stderr: message.stderr,
               exitCode: message.exit_code,
               durationMs: message.duration_ms,
+              compileError: message.compile_error || undefined,
             },
           }))
         }
