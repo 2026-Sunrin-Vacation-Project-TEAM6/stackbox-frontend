@@ -19,6 +19,13 @@ export type RunState =
       stderr: string
       exitCode: number
       durationMs: number
+      /**
+       * Set only when a compiled language failed to compile. The backend may
+       * not send this field at all (older runner, interpreted language, or a
+       * runner build that predates it), so every read of it has to tolerate
+       * `undefined` rather than assume the key exists.
+       */
+      compileError?: string
     }
   | { status: 'failed'; message: string }
 
@@ -26,7 +33,22 @@ export type RunState =
 export const RUNNABLE_LANGUAGES = [
   { id: 'python', label: 'Python' },
   { id: 'javascript', label: 'JavaScript' },
+  { id: 'c', label: 'C' },
+  { id: 'cpp', label: 'C++' },
+  { id: 'rust', label: 'Rust' },
 ] as const
+
+/**
+ * Hello-world equivalents shown when a language is picked for an empty code
+ * block. Only languages that need a nudge (compiled languages have real
+ * boilerplate — an `#include` and a `main`) get an entry; Python/JavaScript
+ * are runnable from a blank block as-is.
+ */
+export const STARTER_SNIPPETS: Partial<Record<string, string>> = {
+  c: '#include <stdio.h>\n\nint main(void) {\n    printf("Hello, StackBox!\\n");\n    return 0;\n}\n',
+  cpp: '#include <iostream>\n\nint main() {\n    std::cout << "Hello, StackBox!" << std::endl;\n    return 0;\n}\n',
+  rust: 'fn main() {\n    println!("Hello, StackBox!");\n}\n',
+}
 
 export function isRunnable(language: string | null): boolean {
   return RUNNABLE_LANGUAGES.some((entry) => entry.id === language)
@@ -62,5 +84,8 @@ export function toRunState(run: CodeRun): RunState {
     stderr: run.stderr,
     exitCode: run.exit_code,
     durationMs: run.duration_ms,
+    // `compile_error` is a newer, optional field — the runner may not send it
+    // at all yet, so fall back to `undefined` rather than assume the key exists.
+    compileError: run.compile_error || undefined,
   }
 }
