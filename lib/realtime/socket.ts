@@ -150,9 +150,6 @@ export function connectRealtime(
     }
 
     next.onmessage = (event) => {
-      // web_worker also sends a bare "ping" text frame every 30s, not JSON
-      if (event.data === 'ping') return
-
       try {
         handlers.onMessage?.(JSON.parse(event.data) as ClientMessage)
       } catch {

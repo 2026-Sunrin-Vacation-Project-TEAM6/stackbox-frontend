@@ -68,6 +68,18 @@ export function removeMember(workspaceId: number, memberId: number): Promise<voi
 }
 
 /**
+ * 8 random hex chars via `getRandomValues`, which — unlike `randomUUID` — is
+ * available outside secure contexts (plain HTTP on a non-localhost host).
+ */
+function randomHexSuffix(length: number): string {
+  const bytes = new Uint8Array(Math.ceil(length / 2))
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, length)
+}
+
+/**
  * Derives a URL slug from a workspace name.
  *
  * `workspaces.slug` is globally unique across all users and the backend does
@@ -84,6 +96,6 @@ export function deriveSlug(name: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 80)
 
-  const suffix = crypto.randomUUID().slice(0, 8)
+  const suffix = randomHexSuffix(8)
   return base ? `${base}-${suffix}` : suffix
 }
